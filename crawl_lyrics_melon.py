@@ -11,6 +11,7 @@ import os
 import re
 import csv
 import time
+import math
 import argparse
 import sys
 import cProfile
@@ -31,7 +32,7 @@ from utils import PROJECT_DIR, LYRIC_DIR
 MELON_URL = "http://www.melon.com"
 DRIVER_WAIT = 3
 
-class Crawler():
+class CrawlerBase():
 	""" This class is a group of functions used by both Selenium crawler and
 		bs4 crawler """
 	def __init__(self, driver):
@@ -60,88 +61,24 @@ class Crawler():
 			save_cnt += 1
 		return save_cnt
 
-class CrawlerSelenium(Crawler):
-	""" This class groups the functions needed to crawl using selenium only """
-	def __init__(self, driver):
-		super(CrawlerSelenium, self).__init__(driver)
+	@staticmethod
+	def write_song_id(artist, song_id_list):
+		pass
 
-	def _crawl_songs_lyrics(self, n_song):
-		""" This function crawls song name and lyric from all the songs retrived
-			by pageObj
-		@return - dict {song_name: lyric} """
-		song_lyric_dict = dict()
-		song_idx =  0
-		song_end = False
-		while not song_end:
-			try:
-				div_pagelist = self.driver.find_element_by_id("pageList")
-				song_list = div_pagelist.find_element_by_tag_name("tbody")\
-							.find_elements_by_tag_name("tr")
-				song_cnt = len(song_list)
-				btn_song_info = song_list[song_idx].find_element_by_class_name("btn_icon_detail")
-				btn_song_info.click()
-				self.wait.until(EC.staleness_of(btn_song_info))
-				# crawl lyric from song_info page
-				song = self.driver.find_element_by_class_name("song_name").text.strip()
-				try:
-					lyric = self.driver.find_element_by_class_name("lyric").text.strip()
-				except NoSuchElementException: # no lyric uploaded
-					lyric = ""
-				song_lyric_dict[song] = lyric
-				# return to previous page and wait until id "btn_icon_detail" and
-				# class "page_num" are avaiable
-				# Question: there are multiple elements of same class - how can we
-				# be sure if all of such elements have been loaded
-				# self.driver.execute_script("window.history.go(-1)")
-				self.driver.back()
-				self.wait.until(EC.presence_of_element_located((By.CLASS_NAME, "btn_icon_detail")))
-				self.wait.until(EC.presence_of_element_located((By.CLASS_NAME, "page_num")))
-			except:
-				print("{} failed".format(song_idx))
-			song_idx += 1
-			if n_song is not None:
-				song_cnt = n_song
-			if song_idx >= song_cnt:
-				song_end = True
-		return song_lyric_dict
-
-	def get_song_lyric_dict(self, artist_id, n_song=None):
-		""" This function returns song_lyric_dict of all songs of artist
-			with input artist_id using Selenium only
-		@param n_song - number of songs to crawl (crawl all if None)
-		@return - dict {song_name: lyric}
-		"""
-		self._setup(artist_id)
-		song_lyric_dict = dict()
-		page_idx = 0
-		page_end = False
-		print("Song page progress: ", end='')
-		while not page_end:
-			song_lyric_dict.update(self._crawl_songs_lyrics(n_song))
-			page_list = self.driver.find_element_by_class_name("page_num")\
-						.find_elements_by_tag_name("a")
-			page_cnt = len(page_list) + 1
-			next_page = page_list[page_idx]
-			next_page.click()
-			self.wait.until(EC.staleness_of(next_page))
-			print("{}/{} ".format(page_idx+1, page_cnt), end='')
-			page_idx += 1
-			if page_idx >= page_cnt - 1:
-				page_end = True
-		print()
-
-		song_lyric_dict.update(self._crawl_songs_lyrics(n_song))
-		return song_lyric_dict
-
-class CrawlerSeleniumDual(Crawler):
-	""" This class groups the functions need to crawl using selenium only 
-		by opening dual browsers """
-	def __init__(self, driver):
-		super(CrawlerSeleniumDual, self).__init__(driver)
+class Crawler(CrawlerBase):
+	""" This class is the actual crawler used for lyric crawling
+	@param option - selenium_single, selenium_dual, bs4
+	"""
+	def __init__(self, driver, option):
+		super(Crawler, self).__init__(driver)
+		if option not in ("selenium_single", "selenium_dual", "bs4"):
+			raise ValueError("Wrong crawler option")
+		self.option = option
 
 	def _get_song_id_list(self, n_song):
 		""" This function gets list of song_ids from one page
-		@return - list [song_id] """
+		@return - list [song_id]
+		"""
 		song_id_list = list()
 		href_pattern = re.compile(r'javascript:melon.link.goSongDetail\(\'(?P<id>\d+)\'\);')
 		div_pagelist = self.driver.find_element_by_id("pageList")
@@ -156,85 +93,11 @@ class CrawlerSeleniumDual(Crawler):
 			song_id_list.append(song_id)
 		return song_id_list
 
-	def _crawl_song_lyric(self):
+	def _crawl_song_lyric_bs4(self):
 		""" This function crawls song name and lyric from the currently open
 			song info page
-		@return - tuple (song_name, lyric) """
-		song = self.driver.find_element_by_class_name("song_name").text.strip()
-		div_wrap_lyric = self.driver.find_element_by_class_name("wrap_lyric")
-		try:
-			div_lyric = div_wrap_lyric.find_element_by_class_name("lyric")
-			lyric = div_lyric.text.strip()
-		except NoSuchElementException:
-			assert div_wrap_lyric.find_element_by_class_name("lyric_none") is not None
-			lyric = ""
-		return song, lyric
-
-	def get_song_lyric_dict(self, artist_id, n_song=None):
-		""" This function crawls and returns song_lyric_dict of all songs of
-			artist with input artist_id using two browers of Selenium
-		@param n_song - number of songs to crawl (crawl all if None)
-		@return - dict {song_name: lyric}
+		@return - tuple (song_name, lyric)
 		"""
-		self._setup(artist_id)
-		song_id_list = list()
-		song_lyric_dict = dict()
-		page_end = False
-		page_idx = 0
-		while not page_end:
-			page_list = self.driver.find_element_by_class_name("page_num")\
-						.find_elements_by_tag_name("a")
-			page_cnt = len(page_list) + 1
-			song_id_list += self._get_song_id_list(n_song)
-			next_page = page_list[page_idx]
-			next_page.click()
-			self.wait.until(EC.staleness_of(next_page))
-			page_idx += 1
-			if page_idx >= page_cnt - 1:
-				page_end = True
-		song_id_list += self._get_song_id_list(n_song)
-		# open new window and use the new window to oepn song info page that
-		# contains lyrics
-		second_browser = self.driver.execute_script("window.open()")
-		self.driver.switch_to_window(self.driver.window_handles[1])
-		print("Crwaling progress: ", end='')
-		for idx, song_id in enumerate(song_id_list):
-			url = MELON_URL + "/song/detail.htm?songId={}".format(song_id)
-			self.driver.get(url)
-			song, lyric = self._crawl_song_lyric()
-			song_lyric_dict[song] = lyric
-			if idx % 50 == 0 and idx != 0:
-				print("{}/{} ".format(idx, len(song_id_list)), end='')
-		print()
-		return song_lyric_dict
-
-class CrawlerBs4(Crawler):
-	""" This function groups the functions needed to crawl using both Selenium
-		and bs4 """
-	def __init__(self, driver):
-		super(CrawlerBs4, self).__init__(driver)
-
-	def _get_song_id_list(self, n_song):
-		""" This function gets list of song_ids from one page
-		@return - list [song_id] """
-		song_id_list = list()
-		href_pattern = re.compile(r'javascript:melon.link.goSongDetail\(\'(?P<id>\d+)\'\);')
-		div_pagelist = self.driver.find_element_by_id("pageList")
-		song_list = div_pagelist.find_element_by_tag_name("tbody")\
-					.find_elements_by_tag_name("tr")
-		if n_song is not None:
-			song_list = song_list[:n_song]
-		for song in song_list:
-			btn_song_info = song.find_element_by_class_name("btn_icon_detail")
-			href_str = btn_song_info.get_attribute('href')
-			song_id = href_pattern.match(href_str).group("id")
-			song_id_list.append(song_id)
-		return song_id_list
-
-	def _crawl_song_lyric(self):
-		""" This function crawls song name and lyric from the currently open
-			song info page
-		@return - tuple (song_name, lyric) """
 		page_html = self.driver.page_source
 		source = BeautifulSoup(page_html, "html.parser")
 		div_conts = source.find("div", id="wrap").find("div", id="cont_wrap")\
@@ -253,10 +116,65 @@ class CrawlerBs4(Crawler):
 		else:
 			lyric = div_lyric.text.strip()
 		return song, lyric
-		
+
+	def _crawl_song_lyric_selenium(self):
+		""" This function crawls song name and lyric from the currently open
+			song info page
+		@return - tuple (song_name, lyric)
+		"""
+		song = self.driver.find_element_by_class_name("song_name").text.strip()
+		div_wrap_lyric = self.driver.find_element_by_class_name("wrap_lyric")
+		try:
+			div_lyric = div_wrap_lyric.find_element_by_class_name("lyric")
+			lyric = div_lyric.text.strip()
+		except NoSuchElementException:
+			assert div_wrap_lyric.find_element_by_class_name("lyric_none") is not None
+			lyric = ""
+		return song, lyric
+
+	def _crawl_songlist_lyrics(self, n_song):
+		""" This function crawls song name and lyric from all the songs retrived
+			by pageObj by calling opening each song_info page in the song list
+			using Selenium
+		@return - dict {song_name: lyric}
+		"""
+		song_lyric_dict = dict()
+		song_idx =  0
+		song_end = False
+		while not song_end:
+			div_pagelist = self.driver.find_element_by_id("pageList")
+			song_list = div_pagelist.find_element_by_tag_name("tbody")\
+						.find_elements_by_tag_name("tr")
+			song_cnt = len(song_list)
+			btn_song_info = song_list[song_idx].find_element_by_class_name("btn_icon_detail")
+			btn_song_info.click()
+			self.wait.until(EC.staleness_of(btn_song_info))
+			# crawl lyric from song_info page
+			song = self.driver.find_element_by_class_name("song_name").text.strip()
+			try:
+				lyric = self.driver.find_element_by_class_name("lyric").text.strip()
+			except NoSuchElementException: # no lyric uploaded
+				lyric = ""
+			if song in song_lyric_dict:
+				song += "_dup"
+			song_lyric_dict[song] = lyric
+			# return to previous page and wait until id "btn_icon_detail" and
+			# class "page_num" are avaiable
+			# Question: there are multiple elements of same class - how can we
+			# be sure if all of such elements have been loaded
+			self.driver.back()
+			self.wait.until(EC.presence_of_element_located((By.CLASS_NAME, "btn_icon_detail")))
+			self.wait.until(EC.presence_of_element_located((By.CLASS_NAME, "page_num")))
+			song_idx += 1
+			if n_song is not None:
+				song_cnt = n_song
+			if song_idx >= song_cnt:
+				song_end = True
+		return song_lyric_dict
+
 	def get_song_lyric_dict(self, artist_id, n_song=None):
 		""" This function crawls and returns song_lyric_dict of all songs of
-			artist with input artist_id using Selenium and BeautifulSoup
+			artist with input artist_id
 		@param n_song - number of songs to crawl (crawl all if None)
 		@return - dict {song_name: lyric}
 		"""
@@ -264,50 +182,81 @@ class CrawlerBs4(Crawler):
 		song_id_list = list()
 		song_lyric_dict = dict()
 		page_end = False
+		single_page = False
 		page_idx = 0
+		print("Song list progress: ", end='')
 		while not page_end:
+			if self.option == "selenium_single":
+				songlist_lyric_dict = self._crawl_songlist_lyrics(n_song)
+				for song in songlist_lyric_dict:
+					if song in song_lyric_dict:
+						song += "_dup"
+					song_lyric_dict[song] = songlist_lyric_dict[song]
+			else:
+				song_id_list += self._get_song_id_list(n_song)
 			page_list = self.driver.find_element_by_class_name("page_num")\
 						.find_elements_by_tag_name("a")
+			if len(page_list) == 0:
+				single_page = True
+				break
 			page_cnt = len(page_list) + 1
-			song_id_list += self._get_song_id_list(n_song)
 			next_page = page_list[page_idx]
 			next_page.click()
 			self.wait.until(EC.staleness_of(next_page))
+			print("{}/{} ".format(page_idx+1, page_cnt), end='')
 			page_idx += 1
 			if page_idx >= page_cnt - 1:
 				page_end = True
-		song_id_list += self._get_song_id_list(n_song)
-		# open page for each song in song_id_list and crawl lyrics
-		print("Crawling progress: ", end='')
-		for idx, song_id in enumerate(song_id_list):
-			url = MELON_URL + "/song/detail.htm?songId={}".format(song_id)
-			self.driver.get(url)
-			song, lyric = self._crawl_song_lyric()
-			song_lyric_dict[song] = lyric
-			if idx % 50 == 0 and idx != 0:
-				print("{}/{} ".format(idx, len(song_id_list)), end='')
+		if self.option == "selenium_single":
+			if not single_page:
+				song_lyric_dict.update(self._crawl_songlist_lyrics(n_song))
+		else:
+			if not single_page:
+				song_id_list += self._get_song_id_list(n_song)
+			# print(song_id_list)
+			print()
+		# open and use a new window for retrieving song info page
+		if self.option == "bs4" or self.option == "selenium_dual":
+			second_browser = self.driver.execute_script("window.open()")
+			self.driver.switch_to_window(self.driver.window_handles[-1])
+			print("Crawling progress: ", end='')
+			for idx, song_id in enumerate(song_id_list):
+				url = MELON_URL + "/song/detail.htm?songId={}".format(song_id)
+				self.driver.get(url)
+				# choose what tool to use for crawling
+				if self.option == "bs4":
+					song, lyric = self._crawl_song_lyric_bs4()
+				elif self.option == "selenium_dual":
+					song, lyric = self._crawl_song_lyric_selenium()
+				# if the song name is the same
+				if song in song_lyric_dict:
+					song += "_dup"
+				song_lyric_dict[song] = lyric
+				if idx % 50 == 0 and idx != 0:
+					print("{}/{} ".format(idx, len(song_id_list)), end='')
 		print()
 		return song_lyric_dict
 
 def read_artist_id_csv(csv_file):
 	""" This function reads artist_id csv
+	Skip if the artist has been crawled i.e. 'Y' for "crawled" column of csv
 	@return - dict {artist: artist_id} """
 	artist_id_dict = dict()
 	with open(csv_file, 'r') as fpin:
 		reader = csv.reader(fpin, delimiter=',')
 		next(reader)
 		for row in reader:
-			if len(row) == 2:
+			if len(row) > 0 and row[2] != "Y":
 				artist_id_dict[row[0]] = row[1]
 	return artist_id_dict
 
 def print_profile(pr_stats, n_print):
 	pr_stats.sort_stats("tottime")
 	pr_stats.print_stats(n_print)
-	pr_stats.sort_stats("cumtime")
-	pr_stats.print_stats(n_print)
-	pr_stats.sort_stats("ncalls")
-	pr_stats.print_stats(n_print)
+	# pr_stats.sort_stats("cumtime")
+	# pr_stats.print_stats(n_print)
+	# pr_stats.sort_stats("ncalls")
+	# pr_stats.print_stats(n_print)
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser(description="Crawl lyrics of songs\
@@ -315,12 +264,11 @@ if __name__ == "__main__":
 	parser.add_argument("--bs4", action="store_true",
 						help="use crawler that utilizes BeautifulSoup with\
 							  Selenium")
-	parser.add_argument("--selenium", action="store_true",
+	parser.add_argument("--selenium_single", action="store_true",
 						help="use crawler that utilizes Selenium only")
 	parser.add_argument("--selenium_dual", action="store_true",
 						help="use crawler that utilizes two Selenium windows")
 	parser.add_argument("--profile", action="store_true")
-	parser.add_argument("--overwrite", action="store_true")
 	parser.add_argument("--test", action="store_true")
 	args = parser.parse_args()
 	pr = cProfile.Profile()
@@ -328,12 +276,14 @@ if __name__ == "__main__":
 	start_time = time.time()
 	driver = webdriver.Chrome(os.path.join(PROJECT_DIR, "chromedriver.exe"))
 
+	if not args.bs4 and not args.selenium_dual and not args.selenium_single:
+		raise Exception("Crawling tool must be selected (bs4, selenium_single, selenium_dual)")
 	if args.bs4:
-		crawler = CrawlerBs4(driver)
+		crawler = Crawler(driver, "bs4")
 	elif args.selenium_dual:
-		crawler = CrawlerSeleniumDual(driver)
-	else: # default is Selenium crawler
-		crawler = CrawlerSelenium(driver)
+		crawler = Crawler(driver, "selenium_dual")
+	elif args.selenium_single:
+		crawler = Crawler(driver, "selenium_single")
 
 	artist_id_dict = read_artist_id_csv(os.path.join(PROJECT_DIR, "artist_id.csv"))
 
@@ -362,21 +312,20 @@ if __name__ == "__main__":
 			print("Crawling {}".format(artist))
 			try:
 				artist_id = artist_id_dict[artist]
-				if not args.overwrite:
-					if os.path.isdir(os.path.join(LYRIC_DIR, "artist")):
-						continue
 				song_lyric_dict = crawler.get_song_lyric_dict(artist_id, n_song=None)
 				print(artist, "{} lyrics crawled".format(len(song_lyric_dict)))
 				save_cnt = crawler.save_lyrics(artist, song_lyric_dict)
 				print(artist, "{} lyrics saved".format(save_cnt))
-			except Error as e:
-				print(artist, e)
+			except Exception as e:
+				print("\n", artist, e)
 
-
+	driver.quit()
 	end_time = time.time()
-	elapsed_sec = end_time - start_time
-	elapsed_min = (end_time - start_time) / 60
-	print("Elapsed time: {:.2f}min ({:.2f}sec)".format(elapsed_min, elapsed_sec))
+	elapsed_time = end_time - start_time
+	elapsed_min = math.floor(elapsed_time / 60)
+	elapsed_sec = 60 * (elapsed_time / 60 - elapsed_min)
+
+	print("Elapsed time: {}min {:.2f}sec".format(elapsed_min, elapsed_sec))
 
 """
 Easier using selenium because with bs4 i need to explicitly dig into 
