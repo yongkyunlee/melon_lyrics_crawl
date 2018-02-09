@@ -12,6 +12,7 @@ import re
 import csv
 import time
 import math
+import random
 import argparse
 import sys
 import cProfile
@@ -52,7 +53,7 @@ class CrawlerBase():
 		if lyric != "":
 			song = utils.validate_filename(song)
 			with open(os.path.join(artist_lyric_dir, song), 'wb') as fpout:
-				fpout.write(song.encode('utf8'))
+				fpout.write(lyric.encode('utf8'))
 
 	@staticmethod
 	def save_lyrics_dict(artist, song_lyric_dict):
@@ -75,11 +76,11 @@ class CrawlerBase():
 
 class Crawler(CrawlerBase):
 	""" This class is the actual crawler used for lyric crawling
-	@param option - selenium_single, selenium_dual, bs4
+	@param option - selenium_raw, selenium, bs4
 	"""
 	def __init__(self, driver, option):
 		super(Crawler, self).__init__(driver)
-		if option not in ("selenium_single", "selenium_dual", "bs4"):
+		if option not in ("selenium_raw", "selenium", "bs4"):
 			raise ValueError("Wrong crawler option")
 		self.option = option
 
@@ -183,7 +184,7 @@ class Crawler(CrawlerBase):
 				song_end = True
 		return song_lyric_dict
 
-	def get_song_lyric_dict(self, artist_id, n_song=None):
+	def get_song_lyric_dict(self, artist_id, n_song=None, time_sleep=True):
 		""" This function crawls and returns song_lyric_dict of all songs of
 			artist with input artist_id
 		@param n_song - number of songs to crawl (crawl all if None)
@@ -195,9 +196,8 @@ class Crawler(CrawlerBase):
 		page_end = False
 		single_page = False
 		page_idx = 0
-		print("Song list progress: ", end='')
 		while not page_end:
-			if self.option == "selenium_single":
+			if self.option == "selenium_raw":
 				songlist_lyric_dict = self._crawl_songlist_lyrics(n_song)
 				for song in songlist_lyric_dict:
 					if song in song_lyric_dict:
@@ -210,26 +210,22 @@ class Crawler(CrawlerBase):
 			if len(page_list) == 0:
 				single_page = True
 				break
-			page_cnt = len(page_list) + 1
 			next_page = page_list[page_idx]
 			next_page.click()
 			self.wait.until(EC.staleness_of(next_page))
-			print("{}/{} ".format(page_idx+1, page_cnt), end='')
 			page_idx += 1
 			if page_idx >= page_cnt - 1:
 				page_end = True
-		if self.option == "selenium_single":
+			if time_sleep:
+				time.sleep(random.uniform(0., 1.))
+		if self.option == "selenium_raw":
 			if not single_page:
 				song_lyric_dict.update(self._crawl_songlist_lyrics(n_song))
 		else:
 			if not single_page:
 				song_id_list += self._get_song_id_list(n_song)
-			# print(song_id_list)
-			print()
 		# open and use a new window for retrieving song info page
-		if self.option == "bs4" or self.option == "selenium_dual":
-			second_browser = self.driver.execute_script("window.open()")
-			self.driver.switch_to_window(self.driver.window_handles[-1])
+		if self.option == "bs4" or self.option == "selenium":
 			print("Crawling progress: ", end='')
 			for idx, song_id in enumerate(song_id_list):
 				url = MELON_URL + "/song/detail.htm?songId={}".format(song_id)
@@ -237,15 +233,18 @@ class Crawler(CrawlerBase):
 				# choose what tool to use for crawling
 				if self.option == "bs4":
 					song, lyric = self._crawl_song_lyric_bs4()
-				elif self.option == "selenium_dual":
+				elif self.option == "selenium":
 					song, lyric = self._crawl_song_lyric_selenium()
 				# if the song name is the same
 				if song in song_lyric_dict:
 					song += "_dup"
 				self.save_lyric(self.artist, song, lyric)
 				song_lyric_dict[song] = lyric
+				# TODO: do not know why print below does not work
 				if idx % 50 == 0 and idx != 0:
 					print("{}/{} ".format(idx, len(song_id_list)), end='')
+				if time_sleep:
+					time.sleep(random.uniform(0.5, 3.5))
 		print()
 		return song_lyric_dict
 
@@ -272,14 +271,15 @@ def print_profile(pr_stats, n_print):
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser(description="Crawl lyrics of songs\
-				uploaded on Melon (default crawler: Selenium only)")
+				uploaded on Melon")
 	parser.add_argument("--bs4", action="store_true",
 						help="use crawler that utilizes BeautifulSoup with\
 							  Selenium")
-	parser.add_argument("--selenium_single", action="store_true",
-						help="use crawler that utilizes Selenium only")
-	parser.add_argument("--selenium_dual", action="store_true",
-						help="use crawler that utilizes two Selenium windows")
+	parser.add_argument("--selenium_raw", action="store_true",
+						help="use crawler that utilizes Selenium in a raw way\
+							  i.e. simple but inefficient way")
+	parser.add_argument("--selenium", action="store_true",
+						help="use crawler that utilizes Selenium")
 	parser.add_argument("--profile", action="store_true")
 	parser.add_argument("--test", action="store_true")
 	args = parser.parse_args()
@@ -288,16 +288,17 @@ if __name__ == "__main__":
 	start_time = time.time()
 	driver = webdriver.Chrome(os.path.join(PROJECT_DIR, "chromedriver.exe"))
 
-	if not args.bs4 and not args.selenium_dual and not args.selenium_single:
-		raise Exception("Crawling tool must be selected (bs4, selenium_single, selenium_dual)")
+	if not args.bs4 and not args.selenium and not args.selenium_raw:
+		raise Exception("Crawling tool must be selected (bs4, selenium_raw, selenium)")
 	if args.bs4:
 		crawler = Crawler(driver, "bs4")
-	elif args.selenium_dual:
-		crawler = Crawler(driver, "selenium_dual")
-	elif args.selenium_single:
-		crawler = Crawler(driver, "selenium_single")
+	elif args.selenium:
+		crawler = Crawler(driver, "selenium")
+	elif args.selenium_raw:
+		crawler = Crawler(driver, "selenium_raw")
 
-	artist_id_dict = read_artist_id_csv(os.path.join(PROJECT_DIR, "artist_id.csv"))
+	artist_id_csv = os.path.join(PROJECT_DIR, "artist_id.csv")
+	artist_id_dict = read_artist_id_csv(artist_id_csv)
 
 	if args.profile:
 		artist = input("Artist to crawl: ")
@@ -323,10 +324,12 @@ if __name__ == "__main__":
 		for artist in artist_id_dict:
 			print("Crawling {}".format(artist))
 			artist_id = artist_id_dict[artist]
-			song_lyric_dict = crawler.get_song_lyric_dict(artist_id, n_song=None)
+			song_lyric_dict = crawler.get_song_lyric_dict(artist_id, n_song=None,
+								time_sleep=True)
 			print(artist, "{} lyrics crawled".format(len(song_lyric_dict)))
 			#save_cnt = crawler.save_lyrics(artist, song_lyric_dict)
 			#print(artist, "{} lyrics saved".format(save_cnt))
+			with open("")
 
 	driver.quit()
 	end_time = time.time()
