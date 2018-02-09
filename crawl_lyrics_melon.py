@@ -30,7 +30,7 @@ import utils
 from utils import PROJECT_DIR, LYRIC_DIR
 
 MELON_URL = "http://www.melon.com"
-DRIVER_WAIT = 3
+DRIVER_WAIT = 10
 
 class CrawlerBase():
 	""" This class is a group of functions used by both Selenium crawler and
@@ -42,11 +42,23 @@ class CrawlerBase():
 	def _setup(self, artist_id):
 		""" This function opens the initial aritst url """
 		artist_url = MELON_URL + "/artist/song.htm?artistId={}".format(artist_id)
+		self.artist = artist
 		self.driver.get(artist_url)
 
+	def save_lyric(self, artist, song, lyric):
+		artist_lyric_dir = os.path.join(LYRIC_DIR, artist)
+		if not os.path.isdir(artist_lyric_dir):
+			os.makedirs(artist_lyric_dir)
+		if lyric != "":
+			song = utils.validate_filename(song)
+			with open(os.path.join(artist_lyric_dir, song), 'wb') as fpout:
+				fpout.write(song.encode('utf8'))
+
 	@staticmethod
-	def save_lyrics(artist, song_lyric_dict):
-		""" This function saves lyrics to txt file """
+	def save_lyrics_dict(artist, song_lyric_dict):
+		""" This function saves lyrics to txt file after reading input dict
+		@param song_lyric_dict - {song: lyric}
+		"""
 		save_cnt = 0
 		artist_lyric_dir = os.path.join(LYRIC_DIR, artist)
 		if not os.path.isdir(artist_lyric_dir):
@@ -60,10 +72,6 @@ class CrawlerBase():
 				fpout.write(lyric.encode('utf8'))
 			save_cnt += 1
 		return save_cnt
-
-	@staticmethod
-	def write_song_id(artist, song_id_list):
-		pass
 
 class Crawler(CrawlerBase):
 	""" This class is the actual crawler used for lyric crawling
@@ -122,6 +130,8 @@ class Crawler(CrawlerBase):
 			song info page
 		@return - tuple (song_name, lyric)
 		"""
+		self.wait.until(EC.presence_of_element_located((By.CLASS_NAME, "song_name")))
+		self.wait.until(EC.presence_of_element_located((By.CLASS_NAME, "wrap_lyric")))
 		song = self.driver.find_element_by_class_name("song_name").text.strip()
 		div_wrap_lyric = self.driver.find_element_by_class_name("wrap_lyric")
 		try:
@@ -157,6 +167,7 @@ class Crawler(CrawlerBase):
 				lyric = ""
 			if song in song_lyric_dict:
 				song += "_dup"
+			self.save_lyric(self.artist, song, lyric)
 			song_lyric_dict[song] = lyric
 			# return to previous page and wait until id "btn_icon_detail" and
 			# class "page_num" are avaiable
@@ -231,6 +242,7 @@ class Crawler(CrawlerBase):
 				# if the song name is the same
 				if song in song_lyric_dict:
 					song += "_dup"
+				self.save_lyric(self.artist, song, lyric)
 				song_lyric_dict[song] = lyric
 				if idx % 50 == 0 and idx != 0:
 					print("{}/{} ".format(idx, len(song_id_list)), end='')
@@ -295,7 +307,7 @@ if __name__ == "__main__":
 		song_lyric_dict = crawler.get_song_lyric_dict(artist_id, n_song=None)
 		pr.disable()
 		print("{} lyrics crawled".format(len(song_lyric_dict)))
-		#save_cnt = crawler.save_lyrics(artist, song_lyric_dict)
+		#save_cnt = crawler.save_lyrics_dict(artist, song_lyric_dict)
 		#print("{} lyrics saved".format(save_cnt))
 		pr_stats = pstats.Stats(pr)
 		print_profile(pr_stats, n_print)
@@ -310,14 +322,11 @@ if __name__ == "__main__":
 	else:
 		for artist in artist_id_dict:
 			print("Crawling {}".format(artist))
-			try:
-				artist_id = artist_id_dict[artist]
-				song_lyric_dict = crawler.get_song_lyric_dict(artist_id, n_song=None)
-				print(artist, "{} lyrics crawled".format(len(song_lyric_dict)))
-				save_cnt = crawler.save_lyrics(artist, song_lyric_dict)
-				print(artist, "{} lyrics saved".format(save_cnt))
-			except Exception as e:
-				print("\n", artist, e)
+			artist_id = artist_id_dict[artist]
+			song_lyric_dict = crawler.get_song_lyric_dict(artist_id, n_song=None)
+			print(artist, "{} lyrics crawled".format(len(song_lyric_dict)))
+			#save_cnt = crawler.save_lyrics(artist, song_lyric_dict)
+			#print(artist, "{} lyrics saved".format(save_cnt))
 
 	driver.quit()
 	end_time = time.time()
@@ -340,4 +349,9 @@ staleness seems to work (does not work for backspace so needs to find a clever w
 cProfile not useful because {method 'recv_into' of '_socket.socket' objects}
 second is "time.sleep"
 from third meaningless
+"""
+
+"""
+Got IP banned
+Maybe manual time sleep - rnadom time around standard delay
 """
