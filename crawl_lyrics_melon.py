@@ -214,7 +214,7 @@ class Crawler(CrawlerBase):
 			next_page.click()
 			self.wait.until(EC.staleness_of(next_page))
 			page_idx += 1
-			if page_idx >= page_cnt - 1:
+			if page_idx >= len(page_list) - 1:
 				page_end = True
 			if time_sleep:
 				time.sleep(random.uniform(0., 1.))
@@ -248,27 +248,6 @@ class Crawler(CrawlerBase):
 		print()
 		return song_lyric_dict
 
-def read_artist_id_csv(csv_file):
-	""" This function reads artist_id csv
-	Skip if the artist has been crawled i.e. 'Y' for "crawled" column of csv
-	@return - dict {artist: artist_id} """
-	artist_id_dict = dict()
-	with open(csv_file, 'r') as fpin:
-		reader = csv.reader(fpin, delimiter=',')
-		next(reader)
-		for row in reader:
-			if len(row) > 0 and row[2] != "Y":
-				artist_id_dict[row[0]] = row[1]
-	return artist_id_dict
-
-def print_profile(pr_stats, n_print):
-	pr_stats.sort_stats("tottime")
-	pr_stats.print_stats(n_print)
-	# pr_stats.sort_stats("cumtime")
-	# pr_stats.print_stats(n_print)
-	# pr_stats.sort_stats("ncalls")
-	# pr_stats.print_stats(n_print)
-
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser(description="Crawl lyrics of songs\
 				uploaded on Melon")
@@ -298,7 +277,7 @@ if __name__ == "__main__":
 		crawler = Crawler(driver, "selenium_raw")
 
 	artist_id_csv = os.path.join(PROJECT_DIR, "artist_id.csv")
-	artist_id_dict = read_artist_id_csv(artist_id_csv)
+	artist_id_dict = utils.read_artist_id_csv(artist_id_csv)
 
 	if args.profile:
 		artist = input("Artist to crawl: ")
@@ -311,7 +290,7 @@ if __name__ == "__main__":
 		#save_cnt = crawler.save_lyrics_dict(artist, song_lyric_dict)
 		#print("{} lyrics saved".format(save_cnt))
 		pr_stats = pstats.Stats(pr)
-		print_profile(pr_stats, n_print)
+		utils.print_profile(pr_stats, n_print)
 	elif args.test:
 		artist = input("Artist to crawl: ")
 		artist_id = artist_id_dict[artist]
@@ -329,7 +308,8 @@ if __name__ == "__main__":
 			print(artist, "{} lyrics crawled".format(len(song_lyric_dict)))
 			#save_cnt = crawler.save_lyrics(artist, song_lyric_dict)
 			#print(artist, "{} lyrics saved".format(save_cnt))
-			with open("")
+			# update artist_id.csv file
+			utils.update_artist_id_csv(artist_id_csv, artist)
 
 	driver.quit()
 	end_time = time.time()
@@ -338,23 +318,3 @@ if __name__ == "__main__":
 	elapsed_sec = 60 * (elapsed_time / 60 - elapsed_min)
 
 	print("Elapsed time: {}min {:.2f}sec".format(elapsed_min, elapsed_sec))
-
-"""
-Easier using selenium because with bs4 i need to explicitly dig into 
-parent-child relation
-
-Selenium staleness - wait until loaded
-which worder dont know - especially when there are multiple elements of the same class
-need to wait until everything is loaded
-not simply from top to bottom (waiting until the bottom-most element
-did not work)
-staleness seems to work (does not work for backspace so needs to find a clever way for that)
-cProfile not useful because {method 'recv_into' of '_socket.socket' objects}
-second is "time.sleep"
-from third meaningless
-"""
-
-"""
-Got IP banned
-Maybe manual time sleep - rnadom time around standard delay
-"""
