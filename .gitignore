@@ -1,0 +1,14 @@
+# Compiled source
+*.exe
+*.dll
+*.pyc
+
+# Logs
+*.log
+
+# Directories
+lyrics/
+__pycache__/
+
+# Files
+profile_history.txt
