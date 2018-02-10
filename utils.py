@@ -27,16 +27,17 @@ def print_profile(pr_stats, n_print):
 	# pr_stats.sort_stats("ncalls")
 	# pr_stats.print_stats(n_print)
 
-def read_artist_id_csv(csv_file):
+def read_artist_id_csv(csv_file, ignore_y):
 	""" This function reads artist_id csv
-	Skip if the artist has been crawled i.e. 'Y' for "crawled" column of csv
+	@param ignore_y - skip artist with "y" for the "crawled" column in True
+					  save every artist ignoring "y" if False
 	@return - dict {artist: artist_id} """
 	artist_id_dict = dict()
 	with open(csv_file, 'r') as fpin:
 		reader = csv.reader(fpin, delimiter=',')
 		next(reader)
 		for row in reader:
-			if len(row) > 0 and row[2] != "Y":
+			if len(row) > 0 and ignore_y or row[2] != "Y":
 				artist_id_dict[row[0]] = row[1]
 	return artist_id_dict
 

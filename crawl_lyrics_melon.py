@@ -143,7 +143,7 @@ class Crawler(CrawlerBase):
 			lyric = ""
 		return song, lyric
 
-	def _crawl_songlist_lyrics(self, n_song):
+	def _crawl_songlist_lyrics(self, n_song, save=True):
 		""" This function crawls song name and lyric from all the songs retrived
 			by pageObj by calling opening each song_info page in the song list
 			using Selenium
@@ -168,7 +168,8 @@ class Crawler(CrawlerBase):
 				lyric = ""
 			if song in song_lyric_dict:
 				song += "_dup"
-			self.save_lyric(self.artist, song, lyric)
+			if save:
+				self.save_lyric(self.artist, song, lyric)
 			song_lyric_dict[song] = lyric
 			# return to previous page and wait until id "btn_icon_detail" and
 			# class "page_num" are avaiable
@@ -184,10 +185,13 @@ class Crawler(CrawlerBase):
 				song_end = True
 		return song_lyric_dict
 
-	def get_song_lyric_dict(self, artist_id, n_song=None, time_sleep=True):
+	def get_song_lyric_dict(self, artist_id, n_song=None, time_sleep=True,
+							save=True):
 		""" This function crawls and returns song_lyric_dict of all songs of
 			artist with input artist_id
 		@param n_song - number of songs to crawl (crawl all if None)
+		@param time_sleep - boolean for manual time sleep
+		@param save - boolean for saving the lyrics
 		@return - dict {song_name: lyric}
 		"""
 		self._setup(artist_id)
@@ -198,7 +202,8 @@ class Crawler(CrawlerBase):
 		page_idx = 0
 		while not page_end:
 			if self.option == "selenium_raw":
-				songlist_lyric_dict = self._crawl_songlist_lyrics(n_song)
+				songlist_lyric_dict = self._crawl_songlist_lyrics(n_song,
+										save=save)
 				for song in songlist_lyric_dict:
 					if song in song_lyric_dict:
 						song += "_dup"
@@ -238,7 +243,8 @@ class Crawler(CrawlerBase):
 				# if the song name is the same
 				if song in song_lyric_dict:
 					song += "_dup"
-				self.save_lyric(self.artist, song, lyric)
+				if save:
+					self.save_lyric(self.artist, song, lyric)
 				song_lyric_dict[song] = lyric
 				# TODO: do not know why print below does not work
 				if idx % 50 == 0 and idx != 0:
@@ -277,14 +283,15 @@ if __name__ == "__main__":
 		crawler = Crawler(driver, "selenium_raw")
 
 	artist_id_csv = os.path.join(PROJECT_DIR, "artist_id.csv")
-	artist_id_dict = utils.read_artist_id_csv(artist_id_csv)
-
+	
 	if args.profile:
+		artist_id_dict = utils.read_artist_id_csv(artist_id_csv, ignore_y=True)
 		artist = input("Artist to crawl: ")
 		n_print = int(input("Number of stats to print: "))
 		artist_id = artist_id_dict[artist]
 		pr.enable()
-		song_lyric_dict = crawler.get_song_lyric_dict(artist_id, n_song=None)
+		song_lyric_dict = crawler.get_song_lyric_dict(artist_id, n_song=None,
+							time_sleep=True, save=False)
 		pr.disable()
 		print("{} lyrics crawled".format(len(song_lyric_dict)))
 		#save_cnt = crawler.save_lyrics_dict(artist, song_lyric_dict)
@@ -292,23 +299,25 @@ if __name__ == "__main__":
 		pr_stats = pstats.Stats(pr)
 		utils.print_profile(pr_stats, n_print)
 	elif args.test:
+		artist_id_dict = utils.read_artist_id_csv(artist_id_csv, ignore_y=True)
 		artist = input("Artist to crawl: ")
 		artist_id = artist_id_dict[artist]
 		n_song = int(input("Number of songs to be crawled from each page: "))
 		aritst_id = artist_id_dict[artist]
-		song_lyric_dict = crawler.get_song_lyric_dict(artist_id, n_song=n_song)
+		song_lyric_dict = crawler.get_song_lyric_dict(artist_id, n_song=n_song,
+							save=True)
 		print(song_lyric_dict.keys())
 		print("Number of lyrics crawled: ", len(song_lyric_dict))
 	else:
+		artist_id_dict = utils.read_artist_id_csv(artist_id_csv, ignore_y=False)
 		for artist in artist_id_dict:
 			print("Crawling {}".format(artist))
 			artist_id = artist_id_dict[artist]
 			song_lyric_dict = crawler.get_song_lyric_dict(artist_id, n_song=None,
-								time_sleep=True)
+								time_sleep=True, save=True)
 			print(artist, "{} lyrics crawled".format(len(song_lyric_dict)))
 			#save_cnt = crawler.save_lyrics(artist, song_lyric_dict)
 			#print(artist, "{} lyrics saved".format(save_cnt))
-			# update artist_id.csv file
 			utils.update_artist_id_csv(artist_id_csv, artist)
 
 	driver.quit()
