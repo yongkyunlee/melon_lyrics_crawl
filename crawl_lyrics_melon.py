@@ -282,7 +282,7 @@ if __name__ == "__main__":
 	elif args.selenium_raw:
 		crawler = Crawler(driver, "selenium_raw")
 
-	artist_id_csv = os.path.join(PROJECT_DIR, "artist_id.csv")
+	artist_id_csv = os.path.join(PROJECT_DIR, "artist_id_ballad.csv")
 	
 	if args.profile:
 		artist_id_dict = utils.read_artist_id_csv(artist_id_csv, ignore_y=True)

@@ -37,9 +37,16 @@ def read_artist_id_csv(csv_file, ignore_y):
 		reader = csv.reader(fpin, delimiter=',')
 		next(reader)
 		for row in reader:
-			if len(row) > 0 and ignore_y or row[2] != "Y":
-				artist_id_dict[row[0]] = row[1]
+			if len(row) > 0:
+				if ignore_y or row[2] != "Y":
+					artist_id_dict[row[0]] = row[1]
 	return artist_id_dict
+
+def read_artist_id_csv_list(file_list, ignore_y):
+	""" This function reads the list of artist_id_csv_list """
+	artist_id_dict = dict()
+	for csv_file in file_list:
+		artist_id_dict.update(read_artist_id_csv(file, ignore_y))
 
 def update_artist_id_csv(csv_file, artist):
 	""" This function updates artist_id_csv file by appending 'Y' at the
@@ -54,5 +61,19 @@ def update_artist_id_csv(csv_file, artist):
 				line[2] = "Y"
 			wr.writerow(line)
 
+def csv_alphabetical_order(csv_file):
+	with open(csv_file, 'r') as fpin:
+		lines = fpin.read().split("\n")
+		lines = list(map(lambda x: x.split(','), lines))
+	with open(csv_file, 'w', newline='') as fpout:
+		wr = csv.writer(fpout, delimiter=',')
+		header = lines.pop(0)
+		print(header)
+		print(lines)
+		wr.writerow(header)
+		lines = sorted(lines, key=lambda x: x[0])
+		for line in lines:
+			wr.writerow(line)
+
 if __name__ == "__main__":
-	print(validate_filename('이유 / 너 하<나>야\?'))
+	csv_alphabetical_order(os.path.join(PROJECT_DIR, "artist_id.csv"))
