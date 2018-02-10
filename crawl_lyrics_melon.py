@@ -265,8 +265,12 @@ if __name__ == "__main__":
 							  i.e. simple but inefficient way")
 	parser.add_argument("--selenium", action="store_true",
 						help="use crawler that utilizes Selenium")
-	parser.add_argument("--profile", action="store_true")
-	parser.add_argument("--test", action="store_true")
+	parser.add_argument("--profile", action="store_true",
+						help="prints profiling result of the program")
+	parser.add_argument("--test", action="store_true",
+						help="tests the program by crawling songs of a single artist")
+	parser.add_argument("--rm_time_sleep", action="store_true",
+						help="remove manual time sleep")
 	args = parser.parse_args()
 	pr = cProfile.Profile()
 
@@ -275,14 +279,15 @@ if __name__ == "__main__":
 
 	if not args.bs4 and not args.selenium and not args.selenium_raw:
 		raise Exception("Crawling tool must be selected (bs4, selenium_raw, selenium)")
-	if args.bs4:
-		crawler = Crawler(driver, "bs4")
-	elif args.selenium:
+	if args.selenium:
 		crawler = Crawler(driver, "selenium")
+	elif args.bs4:
+		crawler = Crawler(driver, "bs4")
 	elif args.selenium_raw:
 		crawler = Crawler(driver, "selenium_raw")
 
 	artist_id_csv = os.path.join(PROJECT_DIR, "artist_id_ballad.csv")
+	time_sleep = not args.rm_time_sleep
 	
 	if args.profile:
 		artist_id_dict = utils.read_artist_id_csv(artist_id_csv, ignore_y=True)
@@ -291,7 +296,7 @@ if __name__ == "__main__":
 		artist_id = artist_id_dict[artist]
 		pr.enable()
 		song_lyric_dict = crawler.get_song_lyric_dict(artist_id, n_song=None,
-							time_sleep=True, save=False)
+							time_sleep=time_sleep, save=False)
 		pr.disable()
 		print("{} lyrics crawled".format(len(song_lyric_dict)))
 		#save_cnt = crawler.save_lyrics_dict(artist, song_lyric_dict)
@@ -305,7 +310,7 @@ if __name__ == "__main__":
 		n_song = int(input("Number of songs to be crawled from each page: "))
 		aritst_id = artist_id_dict[artist]
 		song_lyric_dict = crawler.get_song_lyric_dict(artist_id, n_song=n_song,
-							save=True)
+							save=True, time_sleep=time_sleep)
 		print(song_lyric_dict.keys())
 		print("Number of lyrics crawled: ", len(song_lyric_dict))
 	else:
@@ -314,7 +319,7 @@ if __name__ == "__main__":
 			print("Crawling {}".format(artist))
 			artist_id = artist_id_dict[artist]
 			song_lyric_dict = crawler.get_song_lyric_dict(artist_id, n_song=None,
-								time_sleep=True, save=True)
+								time_sleep=time_sleep, save=True)
 			print(artist, "{} lyrics crawled".format(len(song_lyric_dict)))
 			#save_cnt = crawler.save_lyrics(artist, song_lyric_dict)
 			#print(artist, "{} lyrics saved".format(save_cnt))
